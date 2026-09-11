@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Family Talk</title>
+    <title>リビングTV サポート字幕</title>
     <style>
         * {
             box-sizing: border-box;
@@ -326,9 +326,16 @@
     </div>
 
     <!-- YouTube IFrame API -->
-    <script src="https://www.youtube.com/iframe_api"></script>
     <script>
+        // 動作実績のある別アプリと同じ方式でYouTube IFrame APIを動的に読み込む
+        var youtubeApiTag = document.createElement('script');
+        youtubeApiTag.src = 'https://www.youtube.com/iframe_api';
+        var firstScriptTag = document.getElementsByTagName('script')[0];
+        firstScriptTag.parentNode.insertBefore(youtubeApiTag, firstScriptTag);
+
         let player;
+        let isYouTubePlayerReady = false;
+        let pendingVideoId = null;
         let recognition = null;
         let isStarted = false;
         let shouldRestartRecognition = false;
@@ -362,7 +369,24 @@
                 height: '100%',
                 width: '100%',
                 videoId: 'jfKfPfyJRdk',
-                playerVars: { autoplay: 0, controls: 1, rel: 0 }
+                playerVars: {
+                    autoplay: 0,
+                    controls: 1,
+                    rel: 0,
+                    playsinline: 1
+                },
+                events: {
+                    onReady: function () {
+                        isYouTubePlayerReady = true;
+                        if (pendingVideoId) {
+                            player.loadVideoById(pendingVideoId);
+                            pendingVideoId = null;
+                        }
+                    },
+                    onError: function (event) {
+                        console.warn('YouTubeプレーヤーエラー:', event.data);
+                    }
+                }
             });
         }
 
@@ -374,8 +398,9 @@
                 return;
             }
 
-            if (!player || typeof player.loadVideoById !== 'function') {
-                alert('YouTubeプレーヤーを準備中です。少し待ってから再度お試しください。');
+            // APIの読み込み前に押された場合は、準備完了後に自動再生する
+            if (!isYouTubePlayerReady || !player || typeof player.loadVideoById !== 'function') {
+                pendingVideoId = videoId;
                 return;
             }
 
