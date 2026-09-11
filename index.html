@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>リビングTV サポート字幕</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro JP", "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: #121214;
+            color: #f5f5f7;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            display: flex;
+        }
+
+        /* 全画面スタートオーバーレイ（ワンクリック開始用） */
+        #start-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(18, 18, 20, 0.85);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            cursor: pointer;
+            transition: opacity 0.5s ease;
+        }
+
+        .start-card {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            padding: 48px 64px;
+            border-radius: 28px;
+            text-align: center;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+            max-width: 500px;
+        }
+
+        .start-card h1 {
+            font-size: 26px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            letter-spacing: -0.5px;
+        }
+
+        .start-card p {
+            font-size: 15px;
+            color: #aeaeb2;
+            margin-bottom: 32px;
+            line-height: 1.5;
+        }
+
+        .start-button {
+            background: #0a84ff;
+            color: white;
+            border: none;
+            padding: 16px 36px;
+            font-size: 17px;
+            font-weight: 600;
+            border-radius: 16px;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+            box-shadow: 0 4px 12px rgba(10, 132, 255, 0.3);
+        }
+
+        .start-button:hover {
+            background: #0071e3;
+        }
+
+        .start-button:active {
+            transform: scale(0.98);
+        }
+
+        /* メインレイアウト (左70% : 右30%) */
+        .main-container {
+            display: flex;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        /* 左側: YouTubeプレイヤーエリア (70%) */
+        .video-section {
+            width: 70%;
+            height: 100%;
+            background: #000;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* URL入力フロートバー */
+        .url-bar {
+            position: absolute;
+            top: 24px;
+            left: 24px;
+            z-index: 10;
+            display: flex;
+            gap: 10px;
+            background: rgba(28, 28, 30, 0.75);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            padding: 8px 12px;
+            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+            width: calc(100% - 48px);
+            max-width: 540px;
+        }
+
+        .url-input {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 8px;
+            padding: 8px 14px;
+            color: #fff;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .url-input:focus {
+            border-color: #0a84ff;
+        }
+
+        .url-button {
+            background: rgba(255, 255, 255, 0.15);
+            border: none;
+            color: #fff;
+            padding: 8px 16px;
+            font-size: 14px;
+            font-weight: 500;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .url-button:hover {
+            background: rgba(255, 255, 255, 0.25);
+        }
+
+        /* YouTube埋め込みコンテナ */
+        .video-wrapper {
+            flex: 1;
+            width: 100%;
+            height: 100%;
+        }
+
+        .video-wrapper iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        /* 右側: ライブ字幕タイムラインエリア (30%) */
+        .caption-section {
+            width: 30%;
+            height: 100%;
+            background: #1c1c1e;
+            border-left: 1px solid rgba(255, 255, 255, 0.08);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .caption-header {
+            padding: 20px 24px;
+            background: rgba(28, 28, 30, 0.9);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .caption-title {
+            font-size: 16px;
+            font-weight: 600;
+            letter-spacing: -0.3px;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #32d74b;
+            background: rgba(50, 215, 75, 0.12);
+            padding: 4px 10px;
+            border-radius: 20px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background-color: #32d74b;
+            border-radius: 50%;
+            box-shadow: 0 0 8px #32d74b;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.4; }
+            100% { opacity: 1; }
+        }
+
+        /* チャットタイムライン（LINE風） */
+        .chat-timeline {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            scroll-behavior: smooth;
+        }
+
+        .chat-timeline::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .chat-timeline::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 3px;
+        }
+
+        .chat-bubble-row {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            width: 100%;
+        }
+
+        .chat-bubble {
+            max-width: 85%;
+            padding: 12px 16px;
+            border-radius: 18px;
+            font-size: 15px;
+            line-height: 1.5;
+            word-break: break-all;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 家族の会話（マイク）バブル */
+        .chat-bubble.family {
+            background: #2c2c2e;
+            color: #fff;
+            border-bottom-left-radius: 4px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .chat-time {
+            font-size: 11px;
+            color: #8e8e93;
+            margin-top: 4px;
+            padding-left: 4px;
+        }
+
+        .placeholder-text {
+            text-align: center;
+            color: #8e8e93;
+            font-size: 14px;
+            margin-top: 40px;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ワンクリック開始オーバーレイ -->
+    <div id="start-overlay">
+        <div class="start-card" onclick="event.stopPropagation()">
+            <h1>リビングTV サポート字幕</h1>
+            <p>画面をクリック（またはボタンを押す）して音声認識とアプリを開始します。</p>
+            <button class="start-button" id="start-btn">開始する</button>
+        </div>
+    </div>
+
+    <!-- メイン画面 -->
+    <div class="main-container">
+        <!-- 左側: YouTubeプレイヤー (70%) -->
+        <div class="video-section">
+            <div class="url-bar">
+                <input type="text" id="youtube-url-input" class="url-input" placeholder="YouTubeのURLを入力 (例: https://youtu.be/...)">
+                <button class="url-button" id="load-video-btn">再生</button>
+            </div>
+            <div class="video-wrapper">
+                <div id="youtube-player" style="width:100%; height:100%;"></div>
+            </div>
+        </div>
+
+        <!-- 右側: ライブ字幕タイムライン (30%) -->
+        <div class="caption-section">
+            <div class="caption-header">
+                <span class="caption-title">会話字幕</span>
+                <div class="status-indicator">
+                    <div class="status-dot"></div>
+                    <span>認識中</span>
+                </div>
+            </div>
+            <div class="chat-timeline" id="chat-timeline">
+                <div class="placeholder-text" id="timeline-placeholder">
+                    マイクからの音声を自動でテキスト化してここに表示します...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- YouTube IFrame API -->
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <script>
+        let player;
+        let recognition = null;
+        let isStarted = false;
+        let shouldRestartRecognition = false;
+        let restartTimer = null;
+        let interimRow = null;
+
+        const overlay = document.getElementById('start-overlay');
+        const startBtn = document.getElementById('start-btn');
+        const statusIndicator = document.querySelector('.status-indicator');
+        const statusDot = document.querySelector('.status-dot');
+        const statusText = statusIndicator.querySelector('span');
+
+        function setRecognitionStatus(text, state = 'idle') {
+            statusText.textContent = text;
+            const colors = {
+                listening: '#32d74b',
+                starting: '#ffd60a',
+                error: '#ff453a',
+                idle: '#8e8e93'
+            };
+            const color = colors[state] || colors.idle;
+            statusIndicator.style.color = color;
+            statusIndicator.style.background = `${color}1f`;
+            statusDot.style.backgroundColor = color;
+            statusDot.style.boxShadow = `0 0 8px ${color}`;
+        }
+
+        // YouTube 動画プレイヤー初期化
+        function onYouTubeIframeAPIReady() {
+            player = new YT.Player('youtube-player', {
+                height: '100%',
+                width: '100%',
+                videoId: 'jfKfPfyJRdk',
+                playerVars: { autoplay: 0, controls: 1, rel: 0 }
+            });
+        }
+
+        document.getElementById('load-video-btn').addEventListener('click', () => {
+            const value = document.getElementById('youtube-url-input').value.trim();
+            const videoId = extractYouTubeVideoId(value);
+            if (videoId && player) player.loadVideoById(videoId);
+            else alert('有効なYouTubeのURLまたは動画IDを入力してください。');
+        });
+
+        function extractYouTubeVideoId(value) {
+            if (/^[A-Za-z0-9_-]{11}$/.test(value)) return value;
+            try {
+                const url = new URL(value);
+                if (url.hostname === 'youtu.be') return url.pathname.split('/').filter(Boolean)[0] || null;
+                if (url.searchParams.get('v')) return url.searchParams.get('v');
+                const parts = url.pathname.split('/').filter(Boolean);
+                const marker = parts.findIndex(part => ['embed', 'shorts', 'live'].includes(part));
+                return marker >= 0 ? parts[marker + 1] || null : null;
+            } catch (_) {
+                return null;
+            }
+        }
+
+        overlay.addEventListener('click', startApp);
+        startBtn.addEventListener('click', event => {
+            event.stopPropagation();
+            startApp();
+        });
+
+        function startApp() {
+            if (isStarted) return;
+            isStarted = true;
+            overlay.style.opacity = '0';
+            setTimeout(() => { overlay.style.display = 'none'; }, 500);
+            setRecognitionStatus('準備中', 'starting');
+            initSpeechRecognition();
+        }
+
+        function initSpeechRecognition() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                isStarted = false;
+                setRecognitionStatus('非対応ブラウザ', 'error');
+                alert('このブラウザは音声認識に対応していません。ChromeまたはEdgeをご利用ください。');
+                return;
+            }
+
+            recognition = new SpeechRecognition();
+            recognition.lang = 'ja-JP';
+            recognition.interimResults = true;
+            recognition.continuous = true;
+            recognition.maxAlternatives = 1;
+            shouldRestartRecognition = true;
+
+            recognition.onstart = () => {
+                clearTimeout(restartTimer);
+                setRecognitionStatus('認識中', 'listening');
+            };
+
+            recognition.onaudiostart = () => setRecognitionStatus('音声入力中', 'listening');
+            recognition.onspeechstart = () => setRecognitionStatus('会話を認識中', 'listening');
+
+            recognition.onresult = event => {
+                hidePlaceholder();
+                let interimTranscript = '';
+
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    const transcript = event.results[i][0].transcript.trim();
+                    if (!transcript) continue;
+
+                    if (event.results[i].isFinal) {
+                        removeInterimRow();
+                        appendMessage(transcript, getCurrentTime(), false);
+                    } else {
+                        interimTranscript += transcript;
+                    }
+                }
+
+                if (interimTranscript) updateInterimMessage(interimTranscript);
+            };
+
+            recognition.onerror = event => {
+                console.warn('音声認識エラー:', event.error);
+                const fatalErrors = ['not-allowed', 'service-not-allowed', 'audio-capture'];
+                if (fatalErrors.includes(event.error)) {
+                    shouldRestartRecognition = false;
+                    isStarted = false;
+                    setRecognitionStatus('マイク設定を確認', 'error');
+                    return;
+                }
+                if (event.error === 'network') setRecognitionStatus('通信エラー', 'error');
+                else if (event.error !== 'no-speech') setRecognitionStatus('再接続中', 'starting');
+            };
+
+            recognition.onend = () => {
+                removeInterimRow();
+                if (!shouldRestartRecognition) {
+                    setRecognitionStatus('停止', 'idle');
+                    return;
+                }
+                setRecognitionStatus('再接続中', 'starting');
+                // 即時再起動によるInvalidStateErrorを避ける
+                clearTimeout(restartTimer);
+                restartTimer = setTimeout(startRecognitionSafely, 500);
+            };
+
+            startRecognitionSafely();
+        }
+
+        function startRecognitionSafely() {
+            if (!recognition || !shouldRestartRecognition) return;
+            try {
+                recognition.start();
+            } catch (error) {
+                if (error.name !== 'InvalidStateError') console.error('音声認識開始エラー:', error);
+            }
+        }
+
+        function hidePlaceholder() {
+            const placeholder = document.getElementById('timeline-placeholder');
+            if (placeholder) placeholder.style.display = 'none';
+        }
+
+        function getCurrentTime() {
+            const now = new Date();
+            return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+        }
+
+        function updateInterimMessage(text) {
+            if (!interimRow) {
+                interimRow = createMessageRow(text, getCurrentTime(), true);
+                document.getElementById('chat-timeline').appendChild(interimRow);
+            } else {
+                interimRow.querySelector('.chat-bubble').textContent = text;
+            }
+            scrollToBottom();
+        }
+
+        function removeInterimRow() {
+            if (interimRow) {
+                interimRow.remove();
+                interimRow = null;
+            }
+        }
+
+        function createMessageRow(text, timeStr, isInterim = false) {
+            const row = document.createElement('div');
+            row.className = 'chat-bubble-row';
+            if (isInterim) row.dataset.interim = 'true';
+
+            const bubble = document.createElement('div');
+            bubble.className = 'chat-bubble family';
+            bubble.textContent = text;
+            bubble.style.opacity = isInterim ? '0.65' : '1';
+
+            const time = document.createElement('div');
+            time.className = 'chat-time';
+            time.textContent = isInterim ? `${timeStr} 認識中...` : timeStr;
+
+            row.append(bubble, time);
+            return row;
+        }
+
+        function appendMessage(text, timeStr) {
+            const timeline = document.getElementById('chat-timeline');
+            timeline.appendChild(createMessageRow(text, timeStr, false));
+            scrollToBottom();
+        }
+
+        function scrollToBottom() {
+            const timeline = document.getElementById('chat-timeline');
+            timeline.scrollTop = timeline.scrollHeight;
+        }
+
+        window.addEventListener('beforeunload', () => {
+            shouldRestartRecognition = false;
+            clearTimeout(restartTimer);
+            try { recognition?.stop(); } catch (_) {}
+        });
+    </script>
+</body>
+</html>
