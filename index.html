@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>リビングTV サポート字幕</title>
+    <title>Family Talk</title>
     <style>
         * {
             box-sizing: border-box;
@@ -369,22 +369,70 @@
         document.getElementById('load-video-btn').addEventListener('click', () => {
             const value = document.getElementById('youtube-url-input').value.trim();
             const videoId = extractYouTubeVideoId(value);
-            if (videoId && player) player.loadVideoById(videoId);
-            else alert('有効なYouTubeのURLまたは動画IDを入力してください。');
+            if (!videoId) {
+                alert('YouTubeのURLまたは11文字の動画IDを確認してください。');
+                return;
+            }
+
+            if (!player || typeof player.loadVideoById !== 'function') {
+                alert('YouTubeプレーヤーを準備中です。少し待ってから再度お試しください。');
+                return;
+            }
+
+            player.loadVideoById(videoId);
         });
 
-        function extractYouTubeVideoId(value) {
-            if (/^[A-Za-z0-9_-]{11}$/.test(value)) return value;
+        function extractYouTubeVideoId(input) {
+            const value = input.trim();
+
+            // 11文字の動画IDが直接入力された場合
+            if (/^[A-Za-z0-9_-]{11}$/.test(value)) {
+                return value;
+            }
+
             try {
                 const url = new URL(value);
-                if (url.hostname === 'youtu.be') return url.pathname.split('/').filter(Boolean)[0] || null;
-                if (url.searchParams.get('v')) return url.searchParams.get('v');
+                const hostname = url.hostname.toLowerCase().replace(/^www\./, '');
+
+                // YouTube以外のURLは受け付けない
+                const isYouTubeHost =
+                    hostname === 'youtube.com' ||
+                    hostname.endsWith('.youtube.com') ||
+                    hostname === 'youtu.be' ||
+                    hostname === 'youtube-nocookie.com' ||
+                    hostname.endsWith('.youtube-nocookie.com');
+
+                if (!isYouTubeHost) return null;
+
+                // 短縮URL: https://youtu.be/VIDEO_ID?si=...
+                if (hostname === 'youtu.be') {
+                    return validateYouTubeId(url.pathname.split('/').filter(Boolean)[0]);
+                }
+
+                // 通常URL・モバイルURL: /watch?v=VIDEO_ID
+                const queryId = url.searchParams.get('v');
+                if (queryId) return validateYouTubeId(queryId);
+
+                // 埋め込み・Shorts・Live: /embed/ID, /shorts/ID, /live/ID
                 const parts = url.pathname.split('/').filter(Boolean);
-                const marker = parts.findIndex(part => ['embed', 'shorts', 'live'].includes(part));
-                return marker >= 0 ? parts[marker + 1] || null : null;
-            } catch (_) {
-                return null;
+                const markerIndex = parts.findIndex(part =>
+                    ['embed', 'shorts', 'live', 'v'].includes(part)
+                );
+
+                if (markerIndex >= 0 && parts[markerIndex + 1]) {
+                    return validateYouTubeId(parts[markerIndex + 1]);
+                }
+            } catch (error) {
+                console.warn('YouTube URL解析エラー:', error);
             }
+
+            return null;
+        }
+
+        function validateYouTubeId(value) {
+            if (!value) return null;
+            const id = decodeURIComponent(value).trim();
+            return /^[A-Za-z0-9_-]{11}$/.test(id) ? id : null;
         }
 
         overlay.addEventListener('click', startApp);
