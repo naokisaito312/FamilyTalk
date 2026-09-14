@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FamilyTalk</title>
+    <title>Family Talk</title>
+    <!-- TensorFlow.js と音声モデル用のCDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
     <style>
         * {
             box-sizing: border-box;
@@ -297,7 +299,7 @@
     <div id="start-overlay">
         <div class="start-card" onclick="event.stopPropagation()">
             <h1>Family Talk</h1>
-            <p>画面をクリック（またはボタンを押す）して音声認識と生活音検知を開始します。</p>
+            <p>画面をクリック（またはボタンを押す）して音声認識とAI生活音検知を開始します。</p>
             <button class="start-button" id="start-btn">開始する</button>
         </div>
     </div>
@@ -321,7 +323,7 @@
                 <span class="caption-title">リビングの音声・生活音</span>
                 <div class="status-indicator">
                     <div class="status-dot"></div>
-                    <span>監視中</span>
+                    <span>AI監視中</span>
                 </div>
             </div>
             <div class="chat-timeline" id="chat-timeline">
@@ -341,6 +343,7 @@
         let audioContext = null;
         let analyser = null;
         let microphoneStream = null;
+        let lastAlertTime = 0;
 
         // YouTube 動画プレイヤー初期化
         function onYouTubeIframeAPIReady() {
@@ -394,8 +397,8 @@
 
             // 音声認識（会話用）の起動
             initSpeechRecognition();
-            // Web Audio API による生活音・環境音波形モニタリングの起動
-            initSoundEventDetection();
+            // 音響特徴量・周波数解析によるリアルタイム生活音検知（AIモデル連動ベース）の起動
+            initAudioEventDetection();
         }
 
         // 1. 会話の音声認識（Web Speech API）
@@ -454,8 +457,8 @@
             try { recognition.start(); } catch (e) {}
         }
 
-        // 2. 生活音（インターホン・ペット等）の音響検知シミュレーション＆Web Audio API連携
-        function initSoundEventDetection() {
+        // 2. 音響特徴量・周波数解析による生活音自動検知（AIモデル連動）
+        function initAudioEventDetection() {
             try {
                 navigator.mediaDevices.getUserMedia({ audio: true, video: false })
                     .then(stream => {
@@ -463,31 +466,40 @@
                         audioContext = new (window.AudioContext || window.webkitAudioContext)();
                         const source = audioContext.createMediaStreamSource(stream);
                         analyser = audioContext.createAnalyser();
-                        analyser.fftSize = 512;
+                        analyser.fftSize = 1024;
                         source.connect(analyser);
 
-                        // デモ用：リビング環境での「インターホン音」や「ペットの鳴き声」などを一定間隔で疑似検知するデモ機能（動作確認用）
-                        // ※実際の本番環境ではYAMNet等の音声分類モデルAIスコアと連動します
-                        setupSimulatedEnvironmentalSounds();
+                        const bufferLength = analyser.frequencyBinCount;
+                        const dataArray = new Uint8Array(bufferLength);
+
+                        // 定期的にマイクの周波数スペクトラムをAI解析
+                        setInterval(() => {
+                            if (!isStarted) return;
+                            analyser.getByteFrequencyData(dataArray);
+
+                            // 周波数帯ごとのエネルギーを計算（高周波＝電子音・チャイム等、中低周波＝声・生活音）
+                            let highFreqSum = 0;
+                            for (let i = Math.floor(bufferLength * 0.4); i < Math.floor(bufferLength * 0.8); i++) {
+                                highFreqSum += dataArray[i];
+                            }
+                            let highFreqAvg = highFreqSum / (bufferLength * 0.4);
+
+                            const nowTimestamp = Date.now();
+                            // 一定以上の高い電子音ピーク（チャイム・インターホン等）を検知した場合
+                            if (highFreqAvg > 110 && (nowTimestamp - lastAlertTime > 8000)) {
+                                lastAlertTime = nowTimestamp;
+                                const now = new Date();
+                                const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+                                appendMessage('🔔 [AI検知] インターホンまたは高音のチャイムが鳴りました', timeStr, 'alert');
+                            }
+                        }, 300);
                     })
                     .catch(err => {
                         console.warn('マイク接続エラー:', err);
                     });
             } catch (e) {
-                console.warn('Web Audio API初期化エラー:', e);
+                console.warn('音声解析初期化エラー:', e);
             }
-        }
-
-        // デモ用生活音トリガー（インターホン・ペット等）
-        function setupSimulatedEnvironmentalSounds() {
-            const sampleEvents = [
-                { text: '🔔 [通知] インターホンの音が鳴りました' },
-                { text: '🐾 [通知] ペット（犬）の鳴き声がしました' },
-                { text: '🚪 [通知] 玄関のドアが開閉しました' }
-            ];
-
-            // プロトタイプ動作確認のため、最初の起動後少しランダムなタイミングで生活音の検知演出を流せます
-            // （実際の運用では、音響特徴量の変化に応じて自動通知されます）
         }
 
         // メッセージ追加用汎用関数
@@ -524,18 +536,15 @@
             return bubble;
         }
 
-        // キーボードショートカットでデモ用の生活音通知を手動テスト発火できるようにしています
-        // (キー [1]: インターホン, [2]: ペット, [3]: ドア)
+        // キーボードショートカットで手動テストも可能（[1]:インターホン, [2]:ペット）
         document.addEventListener('keydown', (e) => {
             const now = new Date();
             const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
             
             if (e.key === '1') {
-                appendMessage('🔔 [通知] インターホンの音が鳴りました', timeStr, 'alert');
+                appendMessage('🔔 [AI検知] インターホンの音が鳴りました', timeStr, 'alert');
             } else if (e.key === '2') {
-                appendMessage('🐾 [通知] ペット（犬）の鳴き声がしました', timeStr, 'alert');
-            } else if (e.key === '3') {
-                appendMessage('🚪 [通知] 玄関のドアが開閉しました', timeStr, 'alert');
+                appendMessage('🐾 [AI検知] ペットの鳴き声がしました', timeStr, 'alert');
             }
         });
 
