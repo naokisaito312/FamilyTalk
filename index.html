@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>リビングTV サポート字幕 (感情カラー対応)</title>
+    <title>リビングTV サポート字幕 (音声感情カラー改良版)</title>
     <style>
         * {
             box-sizing: border-box;
@@ -351,6 +351,7 @@
         let microphoneStream = null;
 
         let currentEnergy = 50;
+        let lowFreqEnergy = 50;
 
         // YouTube 動画プレイヤー初期化
         function onYouTubeIframeAPIReady() {
@@ -436,7 +437,7 @@
                 const now = new Date();
                 const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-                const emotionType = estimateEmotion(currentEnergy);
+                const emotionType = estimateEmotion(currentEnergy, lowFreqEnergy);
 
                 if (finalTranscript) {
                     if (currentBubble) {
@@ -464,7 +465,7 @@
             try { recognition.start(); } catch (e) {}
         }
 
-        // 2. Web Audio API による音声トーン分析
+        // 2. Web Audio API による音声トーン・周波数分析
         function initEmotionAnalysis() {
             try {
                 navigator.mediaDevices.getUserMedia({ audio: true, video: false })
@@ -482,11 +483,20 @@
                         setInterval(() => {
                             if (!isStarted) return;
                             analyser.getByteFrequencyData(dataArray);
+                            
                             let sum = 0;
+                            let lowSum = 0;
+                            // 低音域（男性の声の基音が含まれる前半部分）のエネルギーを別途集計
+                            const lowRangeLimit = Math.floor(bufferLength * 0.3);
+
                             for (let i = 0; i < bufferLength; i++) {
                                 sum += dataArray[i];
+                                if (i < lowRangeLimit) {
+                                    lowSum += dataArray[i];
+                                }
                             }
                             currentEnergy = sum / bufferLength;
+                            lowFreqEnergy = lowSum / lowRangeLimit;
                         }, 100);
                     })
                     .catch(err => {
@@ -497,14 +507,18 @@
             }
         }
 
-        // 音声エネルギーから感情を推定するロジック
-        function estimateEmotion(energy) {
-            if (energy > 35) {
-                return 'excited'; // 元気がありそう（黄色系）
-            } else if (energy < 12) {
-                return 'calm';    // 元気がないよう（青色系）
+        // 改良された感情推定ロジック（男性の低音や通常の声が青色にならないように調整）
+        function estimateEmotion(energy, lowEnergy) {
+            // 元気がありそう（黄色）：全体的なエネルギーが大きい時、または高いトーンが強い時
+            if (energy > 30) {
+                return 'excited'; 
+            } 
+            // 元気がないとき（青色）：全体のエネルギーも低く、かつ低音の唸りや張りのない小さなつぶやきレベルのときのみ
+            else if (energy < 8 && lowEnergy < 10) {
+                return 'calm';    
             }
-            return 'family';      // 普通（白色系）
+            // 普通のとき（白色）：通常の会話や男性の低めの声など
+            return 'family';      
         }
 
         // メッセージ追加用関数
