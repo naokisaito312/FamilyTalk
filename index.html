@@ -486,7 +486,7 @@
 
                             const nowTimestamp = Date.now();
                             // 一定以上の高い電子音ピーク（チャイム・インターホン等）を検知した場合
-                            if (highFreqAvg > 110 && (nowTimestamp - lastAlertTime > 8000)) {
+                            if (highFreqAvg > 70 && (nowTimestamp - lastAlertTime > 8000)) {
                                 lastAlertTime = nowTimestamp;
                                 const now = new Date();
                                 const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
