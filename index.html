@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>リビングTV サポート字幕 (生活音検知強化版)</title>
+    <title>リビングTV サポート字幕 (生活音誤検出防止版)</title>
     <style>
         * {
             box-sizing: border-box;
@@ -549,7 +549,7 @@
             try { recognition.start(); } catch (e) {}
         }
 
-        // 2. Web Audio API による音声トーン・生活音監視
+        // 2. Web Audio API による音声トーン・生活音監視（誤検出防止ロジック強化）
         function initEmotionAnalysis() {
             try {
                 navigator.mediaDevices.getUserMedia({ audio: true, video: false })
@@ -570,26 +570,34 @@
                             
                             let sum = 0;
                             let lowSum = 0;
+                            let highSum = 0;
                             const lowRangeLimit = Math.floor(bufferLength * 0.3);
+                            const highRangeStart = Math.floor(bufferLength * 0.4);
 
                             for (let i = 0; i < bufferLength; i++) {
                                 sum += dataArray[i];
                                 if (i < lowRangeLimit) {
                                     lowSum += dataArray[i];
                                 }
+                                if (i >= highRangeStart) {
+                                    highSum += dataArray[i];
+                                }
                             }
                             currentEnergy = sum / bufferLength;
                             lowFreqEnergy = lowSum / lowRangeLimit;
+                            const highFreqEnergy = highSum / (bufferLength - highRangeStart);
 
-                            // 【生活音検知テストモードの判定】
+                            // 【生活音検知の誤検出防止フィルター】
                             const isTestMode = document.getElementById('sound-test-toggle').checked;
-                            // テストモード時はしきい値を大幅に下げて、アラームやチャイムの音を強制キャッチ
-                            const threshold = isTestMode ? 12 : 55;
+                            
+                            // アラームやチャイム（ピー音など）特有の「高めのトーンの成分」が一定以上含まれているかを条件に追加
+                            const threshold = isTestMode ? 14 : 60;
+                            const hasElectronicTone = highFreqEnergy > 15; // 電子音特有の高音成分チェック
 
-                            if (currentEnergy > threshold) {
+                            if (currentEnergy > threshold && hasElectronicTone) {
                                 const nowTime = Date.now();
-                                // 連続で何個も表示されないように2秒間のクールダウンを設ける
-                                if (nowTime - lastAlertTime > 2000) {
+                                // 連続検知を防ぐためクールダウンを3秒に延長
+                                if (nowTime - lastAlertTime > 3000) {
                                     lastAlertTime = nowTime;
                                     const now = new Date();
                                     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
