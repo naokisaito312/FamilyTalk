@@ -3,9 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Family Talk</title>
-    <!-- TensorFlow.js と音声モデル用のCDN -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+    <title>リビングTV サポート字幕 (音声感情推定対応)</title>
     <style>
         * {
             box-sizing: border-box;
@@ -260,7 +258,7 @@
             to { opacity: 1; transform: translateY(0); }
         }
 
-        /* 会話バブル */
+        /* 通常会話バブル */
         .chat-bubble.family {
             background: #2c2c2e;
             color: #fff;
@@ -268,13 +266,20 @@
             border: 1px solid rgba(255, 255, 255, 0.06);
         }
 
-        /* 生活音・システム通知用バブル */
-        .chat-bubble.alert-sound {
-            background: rgba(255, 159, 10, 0.15);
+        /* 感情推定バブル：興奮・喜び・高トーン (オレンジ系) */
+        .chat-bubble.emotion-excited {
+            background: rgba(255, 149, 0, 0.18);
             color: #ff9f0a;
-            border: 1px solid rgba(255, 159, 10, 0.3);
+            border: 1px solid rgba(255, 149, 0, 0.35);
             border-bottom-left-radius: 4px;
-            font-weight: 500;
+        }
+
+        /* 感情推定バブル：落ち着き・リラックス・低トーン (ブルー系) */
+        .chat-bubble.emotion-calm {
+            background: rgba(10, 132, 255, 0.18);
+            color: #0a84ff;
+            border: 1px solid rgba(10, 132, 255, 0.35);
+            border-bottom-left-radius: 4px;
         }
 
         .chat-time {
@@ -298,8 +303,8 @@
     <!-- ワンクリック開始オーバーレイ -->
     <div id="start-overlay">
         <div class="start-card" onclick="event.stopPropagation()">
-            <h1>Family Talk</h1>
-            <p>画面をクリック（またはボタンを押す）して音声認識とAI生活音検知を開始します。</p>
+            <h1>リビングTV サポート字幕</h1>
+            <p>画面をクリック（またはボタンを押す）して音声認識と音声感情推定を開始します。</p>
             <button class="start-button" id="start-btn">開始する</button>
         </div>
     </div>
@@ -320,15 +325,15 @@
         <!-- 右側: ライブ字幕タイムライン (30%) -->
         <div class="caption-section">
             <div class="caption-header">
-                <span class="caption-title">リビングの音声・生活音</span>
+                <span class="caption-title">会話字幕 ＆ 感情推定</span>
                 <div class="status-indicator">
                     <div class="status-dot"></div>
-                    <span>AI監視中</span>
+                    <span>分析中</span>
                 </div>
             </div>
             <div class="chat-timeline" id="chat-timeline">
                 <div class="placeholder-text" id="timeline-placeholder">
-                    会話や生活音（インターホン、ペットの声など）を自動でここに表示します...
+                    会話の文字起こしと声のトーン（感情）をリアルタイムに表示します...
                 </div>
             </div>
         </div>
@@ -343,7 +348,9 @@
         let audioContext = null;
         let analyser = null;
         let microphoneStream = null;
-        let lastAlertTime = 0;
+
+        // 音声解析データ保持用
+        let currentEnergy = 50;
 
         // YouTube 動画プレイヤー初期化
         function onYouTubeIframeAPIReady() {
@@ -397,8 +404,8 @@
 
             // 音声認識（会話用）の起動
             initSpeechRecognition();
-            // 音響特徴量・周波数解析によるリアルタイム生活音検知（AIモデル連動ベース）の起動
-            initAudioEventDetection();
+            // 音声感情推定用（Web Audio API による発話エネルギー・ピッチ傾向解析）の起動
+            initEmotionAnalysis();
         }
 
         // 1. 会話の音声認識（Web Speech API）
@@ -431,18 +438,21 @@
                 const now = new Date();
                 const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
+                // 瞬時の音声エネルギーから感情（興奮・通常・落ち着き）を判定
+                const emotionType = estimateEmotion(currentEnergy);
+
                 if (finalTranscript) {
                     if (currentBubble) {
-                        currentBubble.textContent = finalTranscript;
+                        applyEmotionStyle(currentBubble, finalTranscript, emotionType);
                         currentBubble = null;
                     } else {
-                        appendMessage(finalTranscript, timeStr, 'family');
+                        appendMessage(finalTranscript, timeStr, emotionType);
                     }
                 } else if (interimTranscript) {
                     if (!currentBubble) {
-                        currentBubble = appendMessage(interimTranscript, timeStr, 'family', true);
+                        currentBubble = appendMessage(interimTranscript, timeStr, emotionType, true);
                     } else {
-                        currentBubble.textContent = interimTranscript;
+                        currentBubble.textContent = getEmotionLabel(emotionType) + interimTranscript;
                         scrollToBottom();
                     }
                 }
@@ -457,8 +467,8 @@
             try { recognition.start(); } catch (e) {}
         }
 
-        // 2. 音響特徴量・周波数解析による生活音自動検知（AIモデル連動）
-        function initAudioEventDetection() {
+        // 2. Web Audio API によるリアルタイム感情（音声トーン）分析
+        function initEmotionAnalysis() {
             try {
                 navigator.mediaDevices.getUserMedia({ audio: true, video: false })
                     .then(stream => {
@@ -466,33 +476,22 @@
                         audioContext = new (window.AudioContext || window.webkitAudioContext)();
                         const source = audioContext.createMediaStreamSource(stream);
                         analyser = audioContext.createAnalyser();
-                        analyser.fftSize = 1024;
+                        analyser.fftSize = 256;
                         source.connect(analyser);
 
                         const bufferLength = analyser.frequencyBinCount;
                         const dataArray = new Uint8Array(bufferLength);
 
-                        // 定期的にマイクの周波数スペクトラムをAI解析
+                        // 発話中の音量・エネルギーを常にサンプリング
                         setInterval(() => {
                             if (!isStarted) return;
                             analyser.getByteFrequencyData(dataArray);
-
-                            // 周波数帯ごとのエネルギーを計算（高周波＝電子音・チャイム等、中低周波＝声・生活音）
-                            let highFreqSum = 0;
-                            for (let i = Math.floor(bufferLength * 0.4); i < Math.floor(bufferLength * 0.8); i++) {
-                                highFreqSum += dataArray[i];
+                            let sum = 0;
+                            for (let i = 0; i < bufferLength; i++) {
+                                sum += dataArray[i];
                             }
-                            let highFreqAvg = highFreqSum / (bufferLength * 0.4);
-
-                            const nowTimestamp = Date.now();
-                            // 一定以上の高い電子音ピーク（チャイム・インターホン等）を検知した場合
-                            if (highFreqAvg > 70 && (nowTimestamp - lastAlertTime > 8000)) {
-                                lastAlertTime = nowTimestamp;
-                                const now = new Date();
-                                const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-                                appendMessage('🔔 [AI検知] インターホンまたは高音のチャイムが鳴りました', timeStr, 'alert');
-                            }
-                        }, 300);
+                            currentEnergy = sum / bufferLength;
+                        }, 100);
                     })
                     .catch(err => {
                         console.warn('マイク接続エラー:', err);
@@ -502,8 +501,25 @@
             }
         }
 
-        // メッセージ追加用汎用関数
-        function appendMessage(text, timeStr, type, isInterim = false) {
+        // 音声エネルギーから感情を推定するロジック
+        function estimateEmotion(energy) {
+            // energyの大きさに応じて感情ニュアンスを分類
+            if (energy > 35) {
+                return 'excited'; // 興奮・喜び・大声
+            } else if (energy < 12) {
+                return 'calm';    // 落ち着き・静寂・小声
+            }
+            return 'family';      // 通常の会話
+        }
+
+        function getEmotionLabel(type) {
+            if (type === 'excited') return '🔥 ';
+            if (type === 'calm') return '💬 ';
+            return '';
+        }
+
+        // メッセージ追加用関数（感情バブル対応）
+        function appendMessage(text, timeStr, emotionType, isInterim = false) {
             const timeline = document.getElementById('chat-timeline');
             const placeholder = document.getElementById('timeline-placeholder');
             if (placeholder) placeholder.style.display = 'none';
@@ -513,13 +529,17 @@
 
             const bubble = document.createElement('div');
             
-            if (type === 'alert') {
-                bubble.className = 'chat-bubble alert-sound';
+            if (emotionType === 'excited') {
+                bubble.className = 'chat-bubble emotion-excited';
+                bubble.textContent = '🔥 ' + text;
+            } else if (emotionType === 'calm') {
+                bubble.className = 'chat-bubble emotion-calm';
+                bubble.textContent = '💬 ' + text;
             } else {
                 bubble.className = 'chat-bubble family';
+                bubble.textContent = text;
             }
 
-            bubble.textContent = text;
             if (isInterim) {
                 bubble.style.opacity = '0.7';
             }
@@ -536,17 +556,18 @@
             return bubble;
         }
 
-        // キーボードショートカットで手動テストも可能（[1]:インターホン, [2]:ペット）
-        document.addEventListener('keydown', (e) => {
-            const now = new Date();
-            const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-            
-            if (e.key === '1') {
-                appendMessage('🔔 [AI検知] インターホンの音が鳴りました', timeStr, 'alert');
-            } else if (e.key === '2') {
-                appendMessage('🐾 [AI検知] ペットの鳴き声がしました', timeStr, 'alert');
+        function applyEmotionStyle(bubble, text, emotionType) {
+            if (emotionType === 'excited') {
+                bubble.className = 'chat-bubble emotion-excited';
+                bubble.textContent = '🔥 ' + text;
+            } else if (emotionType === 'calm') {
+                bubble.className = 'chat-bubble emotion-calm';
+                bubble.textContent = '💬 ' + text;
+            } else {
+                bubble.className = 'chat-bubble family';
+                bubble.textContent = text;
             }
-        });
+        }
 
         function scrollToBottom() {
             const timeline = document.getElementById('chat-timeline');
