@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Family Talk</title></title>
+    <title>Family Talk</title>
     <style>
         * {
             box-sizing: border-box;
@@ -251,36 +251,15 @@
             word-break: break-all;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
             animation: fadeIn 0.3s ease;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(8px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        /* 普通のとき：白色系バブル */
-        .chat-bubble.family {
             background: rgba(255, 255, 255, 0.95);
             color: #1c1c1e;
             border-bottom-left-radius: 4px;
             border: 1px solid rgba(255, 255, 255, 0.2);
         }
 
-        /* 元気がありそう（大きな声・ハイテンション）：黄色系バブル */
-        .chat-bubble.emotion-excited {
-            background: rgba(255, 204, 0, 0.92);
-            color: #1c1c1e;
-            border-bottom-left-radius: 4px;
-            border: 1px solid rgba(255, 204, 0, 0.4);
-            font-weight: 500;
-        }
-
-        /* 元気がないとき：青色系バブル */
-        .chat-bubble.emotion-calm {
-            background: rgba(10, 132, 255, 0.22);
-            color: #70d7ff;
-            border-bottom-left-radius: 4px;
-            border: 1px solid rgba(10, 132, 255, 0.4);
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .chat-time {
@@ -326,10 +305,10 @@
         <!-- 右側: ライブ字幕タイムライン (30%) -->
         <div class="caption-section">
             <div class="caption-header">
-                <span class="caption-title">会話字幕 ＆ 感情カラー</span>
+                <span class="caption-title">リアルタイム会話字幕</span>
                 <div class="status-indicator">
                     <div class="status-dot"></div>
-                    <span>分析中</span>
+                    <span>認識中</span>
                 </div>
             </div>
 
@@ -347,12 +326,6 @@
         let player;
         let recognition = null;
         let isStarted = false;
-        let audioContext = null;
-        let analyser = null;
-        let microphoneStream = null;
-
-        let currentEnergy = 50;
-        let lowFreqEnergy = 50;
 
         // YouTube 動画プレイヤー初期化
         function onYouTubeIframeAPIReady() {
@@ -405,10 +378,9 @@
             }, 500);
 
             initSpeechRecognition();
-            initEmotionAnalysis();
         }
 
-        // 1. 会話の音声認識（Web Speech API）
+        // 会話の音声認識（Web Speech API）のみを実行
         function initSpeechRecognition() {
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (!SpeechRecognition) return;
@@ -419,7 +391,6 @@
             recognition.continuous = true;
 
             let currentBubble = null;
-            let lockedEmotion = 'family';
 
             recognition.onresult = (event) => {
                 const placeholder = document.getElementById('timeline-placeholder');
@@ -439,25 +410,18 @@
                 const now = new Date();
                 const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-                const instantEmotion = estimateEmotion(currentEnergy, lowFreqEnergy);
-                if (!currentBubble || instantEmotion === 'excited') {
-                    lockedEmotion = instantEmotion;
-                }
-
                 if (finalTranscript) {
                     if (currentBubble) {
-                        applyEmotionStyle(currentBubble, finalTranscript, lockedEmotion);
+                        currentBubble.textContent = finalTranscript;
                         currentBubble = null;
                     } else {
-                        appendMessage(finalTranscript, timeStr, lockedEmotion);
+                        appendMessage(finalTranscript, timeStr);
                     }
-                    lockedEmotion = 'family';
                 } else if (interimTranscript) {
                     if (!currentBubble) {
-                        currentBubble = appendMessage(interimTranscript, timeStr, lockedEmotion, true);
+                        currentBubble = appendMessage(interimTranscript, timeStr, true);
                     } else {
                         currentBubble.textContent = interimTranscript;
-                        applyEmotionStyle(currentBubble, interimTranscript, lockedEmotion);
                         scrollToBottom();
                     }
                 }
@@ -472,60 +436,8 @@
             try { recognition.start(); } catch (e) {}
         }
 
-        // 2. 音声の音量・トーン解析（感情カラー用）
-        function initEmotionAnalysis() {
-            try {
-                navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-                    .then(stream => {
-                        microphoneStream = stream;
-                        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                        const source = audioContext.createMediaStreamSource(stream);
-                        analyser = audioContext.createAnalyser();
-                        analyser.fftSize = 256;
-                        source.connect(analyser);
-
-                        const bufferLength = analyser.frequencyBinCount;
-                        const dataArray = new Uint8Array(bufferLength);
-
-                        setInterval(() => {
-                            if (!isStarted) return;
-                            analyser.getByteFrequencyData(dataArray);
-                            
-                            let sum = 0;
-                            let lowSum = 0;
-                            const lowRangeLimit = Math.floor(bufferLength * 0.3);
-
-                            for (let i = 0; i < bufferLength; i++) {
-                                sum += dataArray[i];
-                                if (i < lowRangeLimit) {
-                                    lowSum += dataArray[i];
-                                }
-                            }
-                            currentEnergy = sum / bufferLength;
-                            lowFreqEnergy = lowSum / lowRangeLimit;
-                        }, 100);
-                    })
-                    .catch(err => {
-                        console.warn('マイク接続エラー:', err);
-                    });
-            } catch (e) {
-                console.warn('音声解析初期化エラー:', e);
-            }
-        }
-
-        // 感情推定ロジック（感度を大幅に引き上げ）
-        function estimateEmotion(energy, lowEnergy) {
-            // 黄色判定のしきい値を「30」から「55」へ引き上げ（大きな声やハイテンション時のみ黄色になります）
-            if (energy > 55) {
-                return 'excited'; // 元気がありそう（黄色系）
-            } else if (energy < 6 && lowEnergy < 8) {
-                return 'calm';    // 元気がないとき（青色系）
-            }
-            return 'family';      // 普通の会話（白色系）
-        }
-
         // メッセージ追加
-        function appendMessage(text, timeStr, emotionType, isInterim = false) {
+        function appendMessage(text, timeStr, isInterim = false) {
             const timeline = document.getElementById('chat-timeline');
             const placeholder = document.getElementById('timeline-placeholder');
             if (placeholder) placeholder.style.display = 'none';
@@ -534,7 +446,8 @@
             row.className = 'chat-bubble-row';
 
             const bubble = document.createElement('div');
-            applyEmotionStyle(bubble, text, emotionType);
+            bubble.className = 'chat-bubble';
+            bubble.textContent = text;
 
             if (isInterim) {
                 bubble.style.opacity = '0.7';
@@ -550,17 +463,6 @@
 
             scrollToBottom();
             return bubble;
-        }
-
-        function applyEmotionStyle(bubble, text, emotionType) {
-            if (emotionType === 'excited') {
-                bubble.className = 'chat-bubble emotion-excited';
-            } else if (emotionType === 'calm') {
-                bubble.className = 'chat-bubble emotion-calm';
-            } else {
-                bubble.className = 'chat-bubble family';
-            }
-            bubble.textContent = text;
         }
 
         function scrollToBottom() {
