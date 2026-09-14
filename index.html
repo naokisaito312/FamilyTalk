@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Family Talk</title>
+    <title>Family Talk</title></title>
     <style>
         * {
             box-sizing: border-box;
@@ -266,7 +266,7 @@
             border: 1px solid rgba(255, 255, 255, 0.2);
         }
 
-        /* 元気がありそう：黄色系バブル */
+        /* 元気がありそう（大きな声・ハイテンション）：黄色系バブル */
         .chat-bubble.emotion-excited {
             background: rgba(255, 204, 0, 0.92);
             color: #1c1c1e;
@@ -513,14 +513,15 @@
             }
         }
 
-        // 感情推定ロジック
+        // 感情推定ロジック（感度を大幅に引き上げ）
         function estimateEmotion(energy, lowEnergy) {
-            if (energy > 30) {
+            // 黄色判定のしきい値を「30」から「55」へ引き上げ（大きな声やハイテンション時のみ黄色になります）
+            if (energy > 55) {
                 return 'excited'; // 元気がありそう（黄色系）
-            } else if (energy < 8 && lowEnergy < 10) {
+            } else if (energy < 6 && lowEnergy < 8) {
                 return 'calm';    // 元気がないとき（青色系）
             }
-            return 'family';      // 普通（白色系）
+            return 'family';      // 普通の会話（白色系）
         }
 
         // メッセージ追加
