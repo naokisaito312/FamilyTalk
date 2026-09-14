@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>リビングTV サポート字幕 (音声感情カラー改良版)</title>
+    <title>リビングTV サポート字幕 (感情カラー修正版)</title>
     <style>
         * {
             box-sizing: border-box;
@@ -418,6 +418,7 @@
             recognition.continuous = true;
 
             let currentBubble = null;
+            let lockedEmotion = 'family'; // 発話ごとに感情をロックする変数
 
             recognition.onresult = (event) => {
                 const placeholder = document.getElementById('timeline-placeholder');
@@ -437,20 +438,26 @@
                 const now = new Date();
                 const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-                const emotionType = estimateEmotion(currentEnergy, lowFreqEnergy);
+                // 新規発話のスタート時（バブルがまだないとき）、または音声の勢いがあるときは感情を判定・更新する
+                const instantEmotion = estimateEmotion(currentEnergy, lowFreqEnergy);
+                if (!currentBubble || instantEmotion === 'excited') {
+                    lockedEmotion = instantEmotion;
+                }
 
                 if (finalTranscript) {
                     if (currentBubble) {
-                        applyEmotionStyle(currentBubble, finalTranscript, emotionType);
+                        applyEmotionStyle(currentBubble, finalTranscript, lockedEmotion);
                         currentBubble = null;
                     } else {
-                        appendMessage(finalTranscript, timeStr, emotionType);
+                        appendMessage(finalTranscript, timeStr, lockedEmotion);
                     }
+                    lockedEmotion = 'family'; // 次の発話のためにリセット
                 } else if (interimTranscript) {
                     if (!currentBubble) {
-                        currentBubble = appendMessage(interimTranscript, timeStr, emotionType, true);
+                        currentBubble = appendMessage(interimTranscript, timeStr, lockedEmotion, true);
                     } else {
                         currentBubble.textContent = interimTranscript;
+                        applyEmotionStyle(currentBubble, interimTranscript, lockedEmotion);
                         scrollToBottom();
                     }
                 }
@@ -486,7 +493,6 @@
                             
                             let sum = 0;
                             let lowSum = 0;
-                            // 低音域（男性の声の基音が含まれる前半部分）のエネルギーを別途集計
                             const lowRangeLimit = Math.floor(bufferLength * 0.3);
 
                             for (let i = 0; i < bufferLength; i++) {
@@ -507,18 +513,14 @@
             }
         }
 
-        // 改良された感情推定ロジック（男性の低音や通常の声が青色にならないように調整）
+        // 感情推定ロジック
         function estimateEmotion(energy, lowEnergy) {
-            // 元気がありそう（黄色）：全体的なエネルギーが大きい時、または高いトーンが強い時
             if (energy > 30) {
-                return 'excited'; 
-            } 
-            // 元気がないとき（青色）：全体のエネルギーも低く、かつ低音の唸りや張りのない小さなつぶやきレベルのときのみ
-            else if (energy < 8 && lowEnergy < 10) {
-                return 'calm';    
+                return 'excited'; // 元気がありそう（黄色系）
+            } else if (energy < 8 && lowEnergy < 10) {
+                return 'calm';    // 元気がないとき（青色系）
             }
-            // 普通のとき（白色）：通常の会話や男性の低めの声など
-            return 'family';      
+            return 'family';      // 普通（白色系）
         }
 
         // メッセージ追加用関数
